@@ -1,19 +1,21 @@
 
-
 import React, { useState } from 'react';
 import { Card, Effect, GameState, Character, AttributeVisibility } from '../../types';
 import { Button, Input, Label, TextArea } from '../ui/Button';
-import { Plus, Trash2, X, Sparkles, Box, Zap, Coins, Hourglass, ShieldAlert, Wand2, EyeOff, Eye, MessageSquare } from 'lucide-react';
+import { Plus, Trash2, Sparkles, Box, Zap, Coins, Hourglass, ShieldAlert, Wand2, EyeOff, Eye, MessageSquare, Lock, Edit2 } from 'lucide-react';
 import { ImageUploader } from '../ui/ImageUploader';
+import { Window } from '../ui/Window';
 
 interface CardEditorProps {
   onSave: (card: Card) => void;
   onClose: () => void;
   initialCard?: Card;
   gameState: GameState; 
+  fixedCost?: number; // New prop to lock cost
+  readOnly?: boolean; // New prop for view-only mode
 }
 
-export const CardEditor: React.FC<CardEditorProps> = ({ onSave, onClose, initialCard, gameState }) => {
+export const CardEditor: React.FC<CardEditorProps> = ({ onSave, onClose, initialCard, gameState, fixedCost, readOnly = false }) => {
   const ensureHitEffect = (c: Card): Card => {
       if (!c.effects || c.effects.length === 0) {
           return {
@@ -25,7 +27,7 @@ export const CardEditor: React.FC<CardEditorProps> = ({ onSave, onClose, initial
                   targetAttribute: '健康', 
                   targetId: '',
                   value: 0, 
-                  conditionDescription: '无 (默认为真/必中)', 
+                  conditionDescription: '无', 
                   conditionContextKeys: []
               }]
           };
@@ -40,7 +42,7 @@ export const CardEditor: React.FC<CardEditorProps> = ({ onSave, onClose, initial
     imageUrl: '',
     itemType: 'skill',
     triggerType: 'active',
-    cost: 5,
+    cost: fixedCost !== undefined ? fixedCost : 5,
     effects: [],
     visibility: AttributeVisibility.PUBLIC
   }));
@@ -54,7 +56,7 @@ export const CardEditor: React.FC<CardEditorProps> = ({ onSave, onClose, initial
       targetAttribute: '健康',
       value: 0, 
       dynamicValue: false,
-      conditionDescription: '无 (默认跟随命中)', 
+      conditionDescription: '当上一个效果命中时', 
       conditionContextKeys: []
     };
     setCard({ ...card, effects: [...(card.effects || []), newEffect] });
@@ -76,83 +78,106 @@ export const CardEditor: React.FC<CardEditorProps> = ({ onSave, onClose, initial
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-      <div className="w-full max-w-2xl bg-slate-900 border border-slate-700 shadow-2xl rounded-lg flex flex-col max-h-[90vh]">
-        <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-950 rounded-t-lg shrink-0">
-          <h2 className="font-bold text-lg text-slate-100">卡牌 / 技能编辑器</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-white"><X size={20} /></button>
-        </div>
-
-        <div className="p-6 overflow-y-auto flex-1 space-y-6">
+    <Window
+      title={readOnly ? '查看卡牌详情' : '卡牌编辑器'}
+      icon={<Edit2 size={18}/>}
+      onClose={onClose}
+      zIndex={200}
+      maxWidth="max-w-2xl"
+      footer={
+        readOnly ? (
+            <Button variant="secondary" onClick={onClose} className="w-full">关闭</Button>
+        ) : (
+            <>
+              <Button variant="secondary" onClick={onClose}>取消</Button>
+              <Button onClick={() => onSave(card)}>保存配置</Button>
+            </>
+        )
+      }
+    >
+      <div className="space-y-6">
           {/* Basic Card Info */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
             <div>
               <div className="flex justify-between items-center">
                   <Label>名称</Label>
                   <button 
-                    className={`text-[10px] flex items-center gap-1 px-2 py-0.5 rounded ${card.visibility === AttributeVisibility.PRIVATE ? 'bg-red-900/50 text-red-300' : 'bg-slate-800 text-slate-400'}`}
-                    onClick={() => setCard({...card, visibility: card.visibility === AttributeVisibility.PUBLIC ? AttributeVisibility.PRIVATE : AttributeVisibility.PUBLIC})}
+                    className={`text-[10px] flex items-center gap-1 px-2 py-0.5 rounded ${card.visibility === AttributeVisibility.PRIVATE ? 'bg-danger/20 text-danger-fg' : 'bg-surface-highlight text-muted'}`}
+                    onClick={() => !readOnly && setCard({...card, visibility: card.visibility === AttributeVisibility.PUBLIC ? AttributeVisibility.PRIVATE : AttributeVisibility.PUBLIC})}
+                    disabled={readOnly}
                   >
                       {card.visibility === AttributeVisibility.PRIVATE ? <><EyeOff size={10}/> 隐藏 (本人可见)</> : <><Eye size={10}/> 公开</>}
                   </button>
               </div>
-              <Input value={card.name} onChange={e => setCard({ ...card, name: e.target.value })} />
+              <Input value={card.name} onChange={e => setCard({ ...card, name: e.target.value })} disabled={readOnly} />
             </div>
             <div>
               <Label>图片</Label>
-              <ImageUploader value={card.imageUrl || ''} onChange={(val) => setCard({...card, imageUrl: val})} placeholder="URL or Paste"/>
+              <div className={readOnly ? "pointer-events-none opacity-90" : ""}>
+                  <ImageUploader value={card.imageUrl || ''} onChange={(val) => setCard({...card, imageUrl: val})} placeholder="URL or Paste"/>
+              </div>
             </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
                <div>
                    <Label>类型</Label>
-                   <div className="flex gap-4 mt-2 bg-gray-950 p-2 rounded border border-slate-800">
-                       <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
-                           <input type="radio" checked={card.itemType === 'skill'} onChange={() => setCard({...card, itemType: 'skill'})} />
-                           <Zap size={14} className="text-amber-400"/> 技能
+                   <div className="flex gap-4 mt-2 bg-surface-light p-2 rounded border border-border">
+                       <label className={`flex items-center gap-2 text-sm text-muted ${readOnly ? 'cursor-default' : 'cursor-pointer'}`}>
+                           <input type="radio" checked={card.itemType === 'skill'} onChange={() => setCard({...card, itemType: 'skill'})} disabled={readOnly} className="accent-primary"/>
+                           <Zap size={14} className="text-warning-fg"/> 技能
                        </label>
-                       <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
-                           <input type="radio" checked={card.itemType === 'consumable'} onChange={() => setCard({...card, itemType: 'consumable'})} />
-                           <Box size={14} className="text-blue-400"/> 物品
+                       <label className={`flex items-center gap-2 text-sm text-muted ${readOnly ? 'cursor-default' : 'cursor-pointer'}`}>
+                           <input type="radio" checked={card.itemType === 'consumable'} onChange={() => setCard({...card, itemType: 'consumable'})} disabled={readOnly} className="accent-info-fg"/>
+                           <Box size={14} className="text-info-fg"/> 物品
                        </label>
                    </div>
                </div>
                <div className="sm:col-span-2">
                    <Label>触发方式</Label>
-                   <div className="flex flex-wrap gap-3 mt-2 bg-gray-950 p-2 rounded border border-slate-800">
-                       <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer" title="手动使用">
-                           <input type="radio" checked={card.triggerType === 'active'} onChange={() => setCard({...card, triggerType: 'active'})} />
+                   <div className="flex flex-wrap gap-3 mt-2 bg-surface-light p-2 rounded border border-border">
+                       <label className={`flex items-center gap-2 text-sm text-muted ${readOnly ? 'cursor-default' : 'cursor-pointer'}`} title="手动使用">
+                           <input type="radio" checked={card.triggerType === 'active'} onChange={() => setCard({...card, triggerType: 'active'})} disabled={readOnly} />
                            主动
                        </label>
-                       <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer" title="手动使用，但先触发目标反应">
-                           <input type="radio" checked={card.triggerType === 'reaction'} onChange={() => setCard({...card, triggerType: 'reaction'})} />
-                           <MessageSquare size={14} className="text-green-400"/> 反应
+                       <label className={`flex items-center gap-2 text-sm text-muted ${readOnly ? 'cursor-default' : 'cursor-pointer'}`} title="手动使用，但先触发目标反应">
+                           <input type="radio" checked={card.triggerType === 'reaction'} onChange={() => setCard({...card, triggerType: 'reaction'})} disabled={readOnly} />
+                           <MessageSquare size={14} className="text-success-fg"/> 反应
                        </label>
-                       <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
-                           <input type="radio" checked={card.triggerType === 'passive'} onChange={() => setCard({...card, triggerType: 'passive'})} />
+                       <label className={`flex items-center gap-2 text-sm text-muted ${readOnly ? 'cursor-default' : 'cursor-pointer'}`}>
+                           <input type="radio" checked={card.triggerType === 'passive'} onChange={() => setCard({...card, triggerType: 'passive'})} disabled={readOnly} />
                            被动
                        </label>
-                       <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer" title="回合结束时自动判定">
-                           <input type="radio" checked={card.triggerType === 'settlement'} onChange={() => setCard({...card, triggerType: 'settlement'})} />
-                           <Hourglass size={14} className="text-purple-400"/> 结算
+                       <label className={`flex items-center gap-2 text-sm text-muted ${readOnly ? 'cursor-default' : 'cursor-pointer'}`} title="回合结束时自动判定">
+                           <input type="radio" checked={card.triggerType === 'settlement'} onChange={() => setCard({...card, triggerType: 'settlement'})} disabled={readOnly} />
+                           <Hourglass size={14} className="text-primary"/> 结算
                        </label>
-                       <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer" title="回合结束时触发，但不显示来源">
-                           <input type="radio" checked={card.triggerType === 'hidden_settlement'} onChange={() => setCard({...card, triggerType: 'hidden_settlement'})} />
-                           <EyeOff size={14} className="text-red-400"/> 隐藏结算
+                       <label className={`flex items-center gap-2 text-sm text-muted ${readOnly ? 'cursor-default' : 'cursor-pointer'}`} title="回合结束时触发，但不显示来源">
+                           <input type="radio" checked={card.triggerType === 'hidden_settlement'} onChange={() => setCard({...card, triggerType: 'hidden_settlement'})} disabled={readOnly} />
+                           <EyeOff size={14} className="text-danger-fg"/> 隐藏结算
                        </label>
                    </div>
                </div>
                <div>
                   <Label>价格 (CP)</Label>
-                  <div className="flex items-center gap-2 mt-2">
-                      <Coins size={16} className="text-yellow-500"/>
+                  <div className="flex items-center gap-2 mt-2 relative">
+                      <Coins size={16} className={fixedCost !== undefined || readOnly ? "text-muted" : "text-warning-fg"}/>
                       <Input 
                           type="number" 
                           value={card.cost} 
-                          onChange={e => setCard({...card, cost: parseInt(e.target.value) || 0})} 
-                          className="flex-1"
+                          onChange={e => {
+                              if (fixedCost === undefined && !readOnly) {
+                                  setCard({...card, cost: parseInt(e.target.value) || 0})
+                              }
+                          }} 
+                          className={`flex-1 ${fixedCost !== undefined || readOnly ? 'text-muted cursor-not-allowed bg-surface-highlight' : ''}`}
+                          disabled={fixedCost !== undefined || readOnly}
                       />
+                      {fixedCost !== undefined && (
+                          <div className="absolute right-2 top-2 text-muted" title="价格已固定 (支付额的一半)">
+                              <Lock size={14}/>
+                          </div>
+                      )}
                   </div>
                </div>
           </div>
@@ -164,48 +189,54 @@ export const CardEditor: React.FC<CardEditorProps> = ({ onSave, onClose, initial
               value={card.description}
               onChange={e => setCard({ ...card, description: e.target.value })}
               placeholder="请填写自然语言描述（如：使用者用力挥舞巨剑...）。此描述将作为AI判断效果的依据。"
+              disabled={readOnly}
             />
-            <p className="text-[10px] text-slate-500 mt-1">提示: 描述不只是展示文本，它定义了动作的具体方式，AI会参考此内容来生成动态效果。</p>
+            {!readOnly && <p className="text-[10px] text-muted mt-1">提示: 描述不只是展示文本，它定义了动作的具体方式，AI会参考此内容来生成动态效果。</p>}
           </div>
 
           {/* Effects Section */}
-          <div className="border-t border-slate-800 pt-4">
+          <div className="border-t border-border pt-4">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="font-semibold text-slate-300 flex items-center gap-2"><Sparkles size={16}/> 效果配置序列</h3>
-              <Button size="sm" onClick={addEffect} variant="secondary"><Plus size={14} className="mr-1" /> 添加效果</Button>
+              <h3 className="font-semibold text-highlight flex items-center gap-2"><Sparkles size={16}/> 效果配置序列</h3>
+              {!readOnly && <Button size="sm" onClick={addEffect} variant="secondary"><Plus size={14} className="mr-1" /> 添加效果</Button>}
             </div>
             
-            <p className="text-xs text-slate-500 mb-4 bg-slate-800/30 p-2 rounded border border-slate-800">
-               系统提示: 
-               1. <b>序列1</b> 通常为「命中/条件判定」，修改值建议设为 0。如果此判定失败，后续效果将不执行。<br/>
-               2. <b>序列2+</b> 为实际效果（如伤害）。请使用中文自然语言描述判定条件。
-            </p>
+            {!readOnly && (
+                <p className="text-xs text-muted mb-4 bg-surface-highlight p-2 rounded border border-border">
+                系统提示: 
+                1. <b>序列1</b> 通常为「命中/条件判定」，修改值建议设为 0。如果此判定失败，后续效果将不执行。<br/>
+                2. <b>序列2+</b> 为实际效果（如伤害）。请使用中文自然语言描述判定条件。
+                </p>
+            )}
 
             <div className="space-y-4">
               {(card.effects || []).map((effect, idx) => {
                 const isHitEffect = idx === 0;
                 return (
-                  <div key={effect.id} className={`bg-gray-950 p-4 rounded border ${isHitEffect ? 'border-indigo-900/50 bg-indigo-900/10' : 'border-slate-800'} text-sm relative group hover:border-slate-600 transition-colors`}>
+                  <div key={effect.id} className={`bg-surface-light p-4 rounded border ${isHitEffect ? 'border-primary/50 bg-primary/5' : 'border-border'} text-sm relative group hover:border-highlight transition-colors`}>
                     {isHitEffect && (
-                        <div className="absolute -top-2 -left-2 bg-indigo-600 text-white text-[10px] px-2 py-0.5 rounded shadow flex items-center gap-1 z-10">
+                        <div className="absolute -top-2 -left-2 bg-primary text-primary-fg text-[10px] px-2 py-0.5 rounded shadow flex items-center gap-1 z-10">
                             <ShieldAlert size={10}/> 基础命中/触发判定
                         </div>
                     )}
                     
-                    <div className={`absolute top-2 right-2 transition-opacity ${isHitEffect ? '' : 'opacity-100 md:opacity-0 md:group-hover:opacity-100'}`}>
-                         <button onClick={() => removeEffect(idx)} className="text-red-400 hover:bg-red-900/50 p-1 rounded" title="删除效果"><Trash2 size={16} /></button>
-                    </div>
+                    {!readOnly && (
+                        <div className={`absolute top-2 right-2 transition-opacity ${isHitEffect ? '' : 'opacity-100 md:opacity-0 md:group-hover:opacity-100'}`}>
+                            <button onClick={() => removeEffect(idx)} className="text-danger-fg hover:bg-danger/20 p-1 rounded" title="删除效果"><Trash2 size={16} /></button>
+                        </div>
+                    )}
                     
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-3 mt-2">
                       {/* Column 1: Target Scope */}
                       <div>
                           <Label>目标范围</Label>
                           <select 
-                              className="w-full bg-gray-950 border border-slate-700 rounded px-2 py-2.5 text-slate-200 mb-2 focus:outline-none focus:border-indigo-500"
+                              className="w-full bg-surface border border-border rounded px-2 py-2.5 text-body mb-2 focus:outline-none focus:border-primary disabled:opacity-70"
                               value={effect.targetType}
                               onChange={e => updateEffect(idx, { targetType: e.target.value as any, targetId: '' })}
+                              disabled={readOnly}
                           >
-                              <option value="specific_char">指定角色 (运行时选)</option>
+                              <option value="specific_char">指定角色</option>
                               <option value="ai_choice">AI 自主选择 (Smart)</option>
                               <option value="self">使用者自身 (Self)</option>
                               <option value="all_chars">所有角色 (All)</option>
@@ -215,9 +246,10 @@ export const CardEditor: React.FC<CardEditorProps> = ({ onSave, onClose, initial
 
                           {effect.targetType === 'specific_char' && (
                               <select 
-                                  className="w-full bg-gray-950 border border-slate-700 rounded px-2 py-2 text-slate-200 focus:outline-none focus:border-indigo-500"
+                                  className="w-full bg-surface border border-border rounded px-2 py-2 text-body focus:outline-none focus:border-primary disabled:opacity-70"
                                   value={effect.targetId || ''}
                                   onChange={e => updateEffect(idx, { targetId: e.target.value })}
+                                  disabled={readOnly}
                               >
                                   <option value="">-- 固定目标 (可选) --</option>
                                   {(Object.values(gameState.characters) as Character[]).map(c => (
@@ -234,6 +266,7 @@ export const CardEditor: React.FC<CardEditorProps> = ({ onSave, onClose, initial
                               value={effect.targetAttribute}
                               onChange={e => updateEffect(idx, { targetAttribute: e.target.value })}
                               placeholder="例如: 健康"
+                              disabled={readOnly}
                           />
                       </div>
 
@@ -241,25 +274,32 @@ export const CardEditor: React.FC<CardEditorProps> = ({ onSave, onClose, initial
                       <div className="relative">
                           <div className="flex justify-between items-center">
                               <Label>修改值/状态</Label>
-                              <label className="text-[10px] text-indigo-400 flex items-center gap-1 cursor-pointer" title="勾选后，数值将由AI根据上下文决定">
-                                  <input 
-                                      type="checkbox" 
-                                      checked={effect.dynamicValue || false}
-                                      onChange={e => updateEffect(idx, { dynamicValue: e.target.checked })}
-                                      className="accent-indigo-500"
-                                  /> 
-                                  <Wand2 size={10}/> AI 决定
-                              </label>
+                              {!readOnly && (
+                                  <label className="text-[10px] text-primary flex items-center gap-1 cursor-pointer" title="勾选后，数值将由AI根据上下文决定">
+                                      <input 
+                                          type="checkbox" 
+                                          checked={effect.dynamicValue || false}
+                                          onChange={e => updateEffect(idx, { dynamicValue: e.target.checked })}
+                                          className="accent-primary"
+                                      /> 
+                                      <Wand2 size={10}/> AI 决定
+                                  </label>
+                              )}
+                              {readOnly && effect.dynamicValue && (
+                                  <span className="text-[10px] text-primary flex items-center gap-1">
+                                      <Wand2 size={10}/> AI 决定
+                                  </span>
+                              )}
                           </div>
                           <Input 
                               value={effect.value} 
                               onChange={e => updateEffect(idx, { value: e.target.value })} 
                               placeholder={effect.dynamicValue ? "参考范围 (如: 10-50)" : "+10, -5, 或 文本"}
-                              disabled={false} 
-                              className={effect.dynamicValue ? "border-indigo-500/50 text-indigo-300" : ""}
+                              disabled={readOnly} 
+                              className={effect.dynamicValue ? "border-primary/50 text-primary" : ""}
                           />
-                          {isHitEffect && Number(effect.value) === 0 && (
-                               <span className="text-[9px] text-indigo-400 absolute bottom-[-18px] left-0">命中判定建议值为 0</span>
+                          {isHitEffect && Number(effect.value) === 0 && !readOnly && (
+                               <span className="text-[9px] text-primary absolute bottom-[-18px] left-0">命中判定建议值为 0</span>
                           )}
                       </div>
                     </div>
@@ -271,23 +311,18 @@ export const CardEditor: React.FC<CardEditorProps> = ({ onSave, onClose, initial
                           value={effect.conditionDescription} 
                           onChange={e => updateEffect(idx, { conditionDescription: e.target.value })} 
                           placeholder={isHitEffect ? "无 (默认为真) 或: 目标健康值小于30" : "无 (默认跟随命中)"}
-                          className={`w-full resize-none ${isHitEffect ? "border-indigo-500/30" : ""}`}
+                          className={`w-full resize-none ${isHitEffect ? "border-primary/30" : ""}`}
                           rows={3}
+                          disabled={readOnly}
                       />
-                      <span className="text-[10px] text-slate-500">示例: "使用者是男性", "目标处于虚弱状态"。</span>
+                      {!readOnly && <span className="text-[10px] text-muted">示例: "使用者是男性", "目标处于虚弱状态"。</span>}
                     </div>
                   </div>
                 );
               })}
             </div>
           </div>
-        </div>
-
-        <div className="p-4 border-t border-slate-800 bg-slate-950 rounded-b-lg flex justify-end gap-2 shrink-0">
-          <Button variant="secondary" onClick={onClose}>取消</Button>
-          <Button onClick={() => onSave(card)}>保存配置</Button>
-        </div>
       </div>
-    </div>
+    </Window>
   );
 };

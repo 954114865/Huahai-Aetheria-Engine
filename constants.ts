@@ -8,7 +8,7 @@ export const GAME_CONSTANTS = {
 
 export const MAP_CONSTANTS = {
     CHUNK_SIZE: 1000, // Meters
-    VISUALIZER_GRID_SIZE: 50, // Increased resolution for smoother terrain and rivers
+    VISUALIZER_GRID_SIZE: 20, // Optimized: Reduced from 50 to 20 for mobile performance (84% less polygons)
     SEA_LEVEL: 10,
     PEAK_HEIGHT: 200,
 };
@@ -18,6 +18,7 @@ export const initialAttributes: Record<string, GameAttribute> = {
   '健康': { id: '健康', name: '健康', type: AttributeType.NUMBER, value: 50, visibility: AttributeVisibility.PUBLIC },
   '体能': { id: '体能', name: '体能', type: AttributeType.NUMBER, value: 50, visibility: AttributeVisibility.PUBLIC },
   '快感': { id: '快感', name: '快感', type: AttributeType.NUMBER, value: 50, visibility: AttributeVisibility.PUBLIC },
+  '活跃': { id: '活跃', name: '活跃', type: AttributeType.NUMBER, value: 50, visibility: AttributeVisibility.PUBLIC },
   '能量': { id: '能量', name: '能量', type: AttributeType.NUMBER, value: 50, visibility: AttributeVisibility.PRIVATE },
   '创造点': { id: '创造点', name: '创造点', type: AttributeType.NUMBER, value: 50, visibility: AttributeVisibility.PUBLIC },
   '状态': { id: '状态', name: '状态', type: AttributeType.TEXT, value: '正常', visibility: AttributeVisibility.PUBLIC },

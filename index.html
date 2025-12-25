@@ -1,15 +1,20 @@
+
 <!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="color-scheme" content="dark">
-    <meta name="theme-color" content="#030712">
+    <!-- Updated theme-color to black to be neutral before theme loads -->
+    <meta name="theme-color" content="#000000">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>花海 AI Engine</title>
-    <link rel="manifest" href="/manifest.json">
+    <link rel="manifest" href="./manifest.json">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌍</text></svg>">
+    
+    <!-- Styles are now imported in index.tsx to ensure correct loading path -->
+
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
       tailwind.config = {
@@ -17,6 +22,69 @@
         theme: {
           extend: {
             colors: {
+              // Semantic Colors mapped to CSS Variables
+              app: 'var(--bg-app)',
+              surface: {
+                DEFAULT: 'var(--bg-surface)',
+                highlight: 'var(--bg-surface-highlight)',
+                light: 'var(--bg-surface-light)',
+              },
+              border: {
+                DEFAULT: 'var(--border-base)',
+                highlight: 'var(--border-highlight)',
+                active: 'var(--border-active)',
+              },
+              body: 'var(--text-body)',
+              muted: 'var(--text-muted)',
+              faint: 'var(--text-faint)',
+              highlight: 'var(--text-highlight)',
+              
+              primary: {
+                DEFAULT: 'var(--primary-base)',
+                hover: 'var(--primary-hover)',
+                active: 'var(--primary-active)',
+                fg: 'var(--primary-fg)',
+              },
+              secondary: {
+                DEFAULT: 'var(--secondary-base)',
+                hover: 'var(--secondary-hover)',
+                fg: 'var(--secondary-fg)',
+              },
+              danger: {
+                DEFAULT: 'var(--danger-base)',
+                hover: 'var(--danger-hover)',
+                fg: 'var(--danger-fg)',
+              },
+              success: {
+                DEFAULT: 'var(--success-base)',
+                fg: 'var(--success-fg)',
+              },
+              warning: {
+                DEFAULT: 'var(--warning-base)',
+                fg: 'var(--warning-fg)',
+              },
+              info: {
+                DEFAULT: 'var(--info-base)',
+                fg: 'var(--info-fg)',
+              },
+              // Extended Semantics (Customizable)
+              libido: {
+                DEFAULT: 'var(--libido-base)',
+                fg: 'var(--libido-fg)',
+              },
+              dopamine: {
+                DEFAULT: 'var(--dopamine-base)',
+                fg: 'var(--dopamine-fg)',
+              },
+              endorphin: {
+                DEFAULT: 'var(--endorphin-base)',
+                fg: 'var(--endorphin-fg)',
+              },
+              oxytocin: {
+                DEFAULT: 'var(--oxytocin-base)',
+                fg: 'var(--oxytocin-fg)',
+              },
+              // Keep standard palettes available for specific UI elements that need hard colors
               gray: {
                 850: '#1f2937',
                 900: '#111827',
@@ -24,7 +92,7 @@
               }
             },
             screens: {
-              'lg': '1024px', // Define explicit desktop breakpoint
+              'lg': '1024px',
             }
           }
         }
@@ -36,11 +104,11 @@
       }
       /* Strict PWA Fullscreen Fixes */
       html {
-        height: 100dvh; /* Use dynamic viewport height */
+        height: 100dvh;
         width: 100vw;
         overflow: hidden;
-        background-color: #030712;
-        position: fixed; /* Prevent scroll chaining */
+        background-color: var(--bg-app);
+        position: fixed;
       }
       
       body {
@@ -50,8 +118,8 @@
         padding: 0;
         overflow: hidden;
         overscroll-behavior: none;
-        background-color: #030712;
-        color: #e2e8f0;
+        background-color: var(--bg-app);
+        color: var(--text-body);
         touch-action: none;
         position: fixed;
         inset: 0;
@@ -65,13 +133,19 @@
         overflow: hidden;
         display: flex;
         flex-direction: column;
+
+        /* Safe Area Insets */
+        padding-top: env(safe-area-inset-top);
+        padding-bottom: env(safe-area-inset-bottom);
+        padding-left: env(safe-area-inset-left);
+        padding-right: env(safe-area-inset-right);
       }
 
       /* Force dark inputs */
       input, textarea, select {
-        background-color: #030712 !important;
-        color: #f8fafc !important;
-        border-color: #334155 !important;
+        background-color: var(--bg-surface-light) !important;
+        color: var(--text-highlight) !important;
+        border-color: var(--border-base) !important;
       }
 
       /* Custom Scrollbar */
@@ -83,16 +157,15 @@
         background: transparent;
       }
       ::-webkit-scrollbar-thumb {
-        background: #a855f7;
+        background: var(--primary-base);
         border-radius: 2px;
-        box-shadow: 0 0 8px rgba(168, 85, 247, 0.8);
       }
       ::-webkit-scrollbar-thumb:hover {
-        background: #c084fc;
+        background: var(--primary-hover);
       }
       * {
         scrollbar-width: thin;
-        scrollbar-color: #a855f7 transparent;
+        scrollbar-color: var(--primary-base) transparent;
       }
     </style>
   <script type="importmap">
@@ -105,25 +178,67 @@
     "vite": "https://aistudiocdn.com/vite@^7.2.4",
     "react-dom": "https://aistudiocdn.com/react-dom@^19.2.0",
     "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
-    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.554.0"
+    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.554.0",
+    "@capacitor/core": "https://aistudiocdn.com/@capacitor/core@^7.4.4",
+    "@capacitor/filesystem": "https://aistudiocdn.com/@capacitor/filesystem@^7.1.5",
+    "@capacitor/app": "https://aistudiocdn.com/@capacitor/app@^7.0.0",
+    "@capacitor/status-bar": "https://esm.sh/@capacitor/status-bar@^8.0.0"
   }
 }
 </script>
 <link rel="stylesheet" href="/index.css">
 </head>
-  <body class="bg-gray-950 text-slate-200">
+  <body class="bg-app text-body">
+    <!-- 
+      === 玻璃色散配置 (GLASS DISPERSION SETTINGS) === 
+      核心性能优化: filterRes="120"
+      这意味着滤镜的计算缓冲区仅为 120px 宽，然后拉伸到全屏。
+      这极大地减少了 GPU 的像素处理量（减少约 96% 的计算量），
+      从而实现了类似“每秒低频采样/低分辨率缓冲”的效果，彻底解决了叠加卡顿问题。
+    -->
+    <svg style="position: absolute; width: 0; height: 0; overflow: hidden;" aria-hidden="true">
+      <defs>
+        <filter id="chromatic-aberration" x="-50%" y="-50%" width="200%" height="200%" filterRes="120">
+          <!-- 0. 预先模糊: 由于分辨率极低，模糊半径可以设小一点  -->
+          <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="BLURRED_SOURCE"/>
+
+          <!-- 1. 提取红色通道 -->
+          <feColorMatrix type="matrix" values="1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0" in="BLURRED_SOURCE" result="R"/>
+          <!-- 2. 提取绿色通道 -->
+          <feColorMatrix type="matrix" values="0 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 1 0" in="BLURRED_SOURCE" result="G"/>
+          <!-- 3. 提取蓝色通道 -->
+          <feColorMatrix type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0" in="BLURRED_SOURCE" result="B"/>
+          
+          <!-- 4. 偏移通道: 增大偏移量以适应低分辨率 -->
+          <feOffset in="R" dx="-5" dy="0" result="R_shifted"/>
+          <feOffset in="B" dx="5" dy="0" result="B_shifted"/>
+          
+          <!-- 5. 混合通道 -->
+          <feBlend mode="screen" in="G" in2="R_shifted" result="RG"/>
+          <feBlend mode="screen" in="B_shifted" in2="RG" result="RGB"/>
+        </filter>
+      </defs>
+    </svg>
+
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js')
+          // Use relative path './sw.js' to prevent origin mismatch issues in preview environments
+          navigator.serviceWorker.register('./sw.js')
             .then(reg => console.log('SW registered:', reg))
-            .catch(err => console.log('SW failed:', err));
+            .catch(err => {
+              // Suppress origin mismatch errors common in cloud preview environments
+              if (err.message && err.message.includes('origin')) {
+                console.warn('SW registration skipped: Origin mismatch (Preview Environment).');
+              } else {
+                console.error('SW failed:', err);
+              }
+            });
         });
       }
 
-      // Global Touch Handler to prevent PWA Rubber Banding / Overscroll
       document.addEventListener('touchmove', function(e) {
         let target = e.target;
         let isScrollable = false;

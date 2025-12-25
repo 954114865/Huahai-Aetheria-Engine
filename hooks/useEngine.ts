@@ -1,9 +1,11 @@
 
-import { useState, useEffect, MutableRefObject } from 'react';
-import { GameState, GamePhase, DebugLog, LogEntry } from '../types';
+import { useState, useEffect, MutableRefObject, useRef } from 'react';
+import { GameState, GamePhase, DebugLog, LogEntry, GameImage } from '../types';
 import { useMapLogic } from './useMapLogic';
 import { useActionLogic } from './useActionLogic';
 import { usePhaseLogic } from './usePhaseLogic';
+import { App } from '@capacitor/app';
+import { Capacitor } from '@capacitor/core';
 
 interface UseEngineProps {
     state: GameState;
@@ -12,6 +14,7 @@ interface UseEngineProps {
     addLog: (text: string, overrides?: Partial<LogEntry>) => void;
     addDebugLog: (log: DebugLog) => void;
     requestPlayerReaction?: (charId: string, title: string, message: string) => Promise<string | null>;
+    cancelReactionRequest?: () => void; // New prop
 }
 
 export interface PendingAction {
@@ -31,15 +34,17 @@ export interface PendingAction {
     isHidden?: boolean;
 }
 
-export const useEngine = ({ state, stateRef, updateState, addLog, addDebugLog, requestPlayerReaction }: UseEngineProps) => {
+export const useEngine = ({ state, stateRef, updateState, addLog, addDebugLog, requestPlayerReaction, cancelReactionRequest }: UseEngineProps) => {
     const [isProcessingAI, setIsProcessingAI] = useState(false);
     const [processingLabel, setProcessingLabel] = useState("");
     
+    // Session ID to validate async returns. 
+    // If stop is clicked, we increment session ID, invalidating old in-flight requests.
+    const requestSessionId = useRef(0);
+    
     const [selectedCharId, setSelectedCharId] = useState<string | null>(null);
-    // New Action Queue State
     const [pendingActions, setPendingActions] = useState<PendingAction[]>([]);
     
-    // Legacy selection state (for immediate feedback before adding to queue)
     const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
     const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
     
@@ -48,7 +53,6 @@ export const useEngine = ({ state, stateRef, updateState, addLog, addDebugLog, r
     const setPhase = (phase: GamePhase) => updateState(prev => ({ ...prev, round: { ...prev.round, phase, lastErrorMessage: undefined } }));
     const setError = (msg: string) => updateState(prev => ({ ...prev, round: { ...prev.round, lastErrorMessage: msg } }));
     
-    // Centralized AI Failure Handler
     const handleAiFailure = (context: string, e: any) => {
         console.error(`${context} Failed`, e);
         addLog(`系统: AI 运算连续失败（数据无效或无响应）。当前操作已取消，流程暂停。请重试。(${e.message})`);
@@ -57,30 +61,71 @@ export const useEngine = ({ state, stateRef, updateState, addLog, addDebugLog, r
         setIsProcessingAI(false);
     };
 
-    // Sub-hooks for logic splitting
+    // Wrapper for AI logic that checks Session ID
+    // If the ID changed during the async operation (Stop was clicked), we simply discard the result.
+    // AND handles Android Background Tasks to keep connection alive
+    const wrapAiLogic = async <T>(logic: () => Promise<T>): Promise<T | undefined> => {
+        const currentSession = requestSessionId.current;
+        
+        let taskId = -1;
+        // Native Platform Background Keep-Alive
+        if (Capacitor.isNativePlatform()) {
+            try {
+                taskId = await (App as any).registerTask(() => {
+                    console.warn('Background task timed out or finished.');
+                    (App as any).finish(taskId);
+                });
+                console.log('Background task registered:', taskId);
+            } catch (e) {
+                console.warn('Failed to register background task:', e);
+            }
+        }
+
+        try {
+            const result = await logic();
+            if (currentSession !== requestSessionId.current) {
+                console.log("AI Request Aborted (Session Mismatch)");
+                return undefined; // Silently drop
+            }
+            return result;
+        } catch (e) {
+            if (currentSession !== requestSessionId.current) return undefined;
+            throw e;
+        } finally {
+            // Finish Background Task
+            if (taskId !== -1) {
+                (App as any).finish(taskId);
+                console.log('Background task finished:', taskId);
+            }
+        }
+    };
+
     const { exploreLocation, processLocationChange, resetLocation } = useMapLogic({
-        stateRef, updateState, addLog, setIsProcessingAI, setProcessingLabel, handleAiFailure, addDebugLog
+        stateRef, updateState, addLog, setIsProcessingAI, setProcessingLabel, handleAiFailure, addDebugLog,
+        checkSession: () => requestSessionId.current
     });
 
     const { phaseOrderDetermination, phaseTurnStart, phaseSettlement, phaseRoundEnd } = usePhaseLogic({
-        stateRef, updateState, addLog, setIsProcessingAI, setProcessingLabel, handleAiFailure, setPhase, addDebugLog
+        stateRef, updateState, addLog, setIsProcessingAI, setProcessingLabel, handleAiFailure, setPhase, addDebugLog,
+        checkSession: () => requestSessionId.current
     });
 
-    const { performCharacterAction, submitPlayerTurn } = useActionLogic({
+    const { performCharacterAction, submitPlayerTurn, performUnveil } = useActionLogic({
         stateRef, updateState, addLog, setIsProcessingAI, setProcessingLabel, handleAiFailure, 
         setSelectedCharId, playerInput, setPlayerInput, 
         selectedCharId,
         selectedCardId, selectedTargetId, setSelectedCardId, setSelectedTargetId, 
         pendingActions, setPendingActions,
         addDebugLog,
-        requestPlayerReaction
+        requestPlayerReaction,
+        checkSession: () => requestSessionId.current
     });
 
     // --- MAP & EXPLORATION TRIGGER ---
     useEffect(() => {
         if (state.round.phase === 'turn_start' || state.round.phase === 'char_acting') return;
         if (isProcessingAI) return;
-        processLocationChange();
+        wrapAiLogic(async () => processLocationChange());
     }, [state.map.activeLocationId]);
 
     // --- CORE FSM LOOP ---
@@ -90,35 +135,71 @@ export const useEngine = ({ state, stateRef, updateState, addLog, addDebugLog, r
 
         const executePhase = async () => {
             const currentPhase = state.round.phase;
+            // Use current session ID for this iteration
+            const mySession = requestSessionId.current;
+
             try {
                 switch (currentPhase) {
                     case 'init':
                     case 'order':
-                        await phaseOrderDetermination();
+                        await wrapAiLogic(phaseOrderDetermination);
                         break;
                     case 'turn_start':
                         phaseTurnStart();
                         break;
                     case 'char_acting':
-                        await performCharacterAction();
+                        await wrapAiLogic(performCharacterAction);
                         break;
                     case 'executing':
                         break;
                     case 'settlement':
-                        await phaseSettlement();
+                        await wrapAiLogic(phaseSettlement);
                         break;
                     case 'round_end':
                         phaseRoundEnd();
                         break;
                 }
             } catch (e: any) {
-                console.error(`Phase ${currentPhase} Loop Error`, e);
-                updateState(prev => ({ ...prev, round: { ...prev.round, isPaused: true, lastErrorMessage: e.message } }));
+                // Only log error if session is still valid
+                if (mySession === requestSessionId.current) {
+                    console.error(`Phase ${currentPhase} Loop Error`, e);
+                    updateState(prev => ({ ...prev, round: { ...prev.round, isPaused: true, lastErrorMessage: e.message } }));
+                }
             }
         };
 
         executePhase();
     }, [state.round.phase, state.round.isPaused, state.round.turnIndex, isProcessingAI]);
+
+    // --- STOP ACTION ---
+    const stopExecution = () => {
+        // 1. Invalidate current AI session
+        requestSessionId.current += 1;
+        
+        // 2. Dispatch global abort event for Visualizer
+        const event = new CustomEvent('ai_abort_all');
+        window.dispatchEvent(event);
+
+        // 3. Cancel any pending UI requests (like Player Reaction)
+        if (cancelReactionRequest) {
+            cancelReactionRequest();
+        }
+
+        // 4. Pause Game state
+        updateState(prev => ({
+            ...prev,
+            round: {
+                ...prev.round,
+                isPaused: true,
+                autoAdvance: false, // Stop auto-advance
+                autoAdvanceCount: 0
+            }
+        }));
+        
+        setIsProcessingAI(false);
+        setProcessingLabel("");
+        addLog("系统: 流程已强制终止 (Terminated)。当前 AI 请求被丢弃，轮次状态保留。点击[继续]可恢复。");
+    };
 
     return {
         isProcessingAI,
@@ -128,8 +209,14 @@ export const useEngine = ({ state, stateRef, updateState, addLog, addDebugLog, r
         selectedTargetId, setSelectedTargetId,
         playerInput, setPlayerInput,
         pendingActions, setPendingActions,
-        submitPlayerTurn,
-        recalculateTurnOrder: phaseOrderDetermination,
-        resetLocation
+        // FIX: Correctly pass images parameter
+        submitPlayerTurn: (t: number, images?: GameImage[]) => wrapAiLogic(async () => submitPlayerTurn(t, images)),
+        recalculateTurnOrder: () => wrapAiLogic(phaseOrderDetermination),
+        resetLocation: (locId: string, keepRegion: boolean, instructions?: string, cultureInstructions?: string, locImages?: GameImage[], charImages?: GameImage[]) => 
+            wrapAiLogic(async () => resetLocation(locId, keepRegion, instructions, cultureInstructions, locImages, charImages)),
+        stopExecution, // Exported for UI
+        performUnveil: (logs: string[], charIds: string[], playerIntent?: string) => wrapAiLogic(async () => performUnveil(logs, charIds, playerIntent)),
+        exploreLocation: (loc: any, isManual: boolean = false, instructions: string = "", cultureInstructions: string = "", locImages: GameImage[] = [], charImages: GameImage[] = []) => 
+            wrapAiLogic(async () => exploreLocation(loc, isManual, instructions, cultureInstructions, locImages, charImages))
     };
 };

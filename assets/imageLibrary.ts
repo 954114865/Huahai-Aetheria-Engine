@@ -120,15 +120,17 @@ export const generateRandomFlagAvatar = (isLocation: boolean = false): string =>
     const groupStart = isLocation ? `<g filter="url(#blur)">` : `<g>`;
     const groupEnd = `</g>`;
 
+    // Golden Ratio Layout: 1 : 1.618 : 1
+    // Total H = 64. 
+    // Top ~ 18, Mid ~ 28, Bot ~ 18.
     const svg = `
     <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
         ${defs}
         ${groupStart}
-            <rect x="-4" y="-4" width="72" height="26" fill="${topColor}" />
-            <rect x="-4" y="22" width="72" height="20" fill="${midColor}" />
-            <rect x="-4" y="42" width="72" height="26" fill="${botColor}" />
+            <rect x="-4" y="-4" width="72" height="22" fill="${topColor}" />
+            <rect x="-4" y="18" width="72" height="28" fill="${midColor}" />
+            <rect x="-4" y="46" width="72" height="22" fill="${botColor}" />
         ${groupEnd}
-        ${!isLocation ? `<rect x="0" y="0" width="64" height="64" fill="none" stroke="rgba(0,0,0,0.15)" stroke-width="4" rx="0" />` : ''}
     </svg>
     `.trim();
 

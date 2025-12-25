@@ -1,14 +1,24 @@
+
 import React from 'react';
-import { GameState, WindowState, Character, Card, GameAttribute, AppSettings, AIConfig, GlobalContextConfig, DefaultSettings, LogEntry, DebugLog } from '../../types';
+import { GameState, WindowState, Character, Card, GameAttribute, AppSettings, AIConfig, GlobalContextConfig, DefaultSettings, LogEntry, DebugLog, MapLocation } from '../../types';
 import { CharacterEditor } from '../Windows/CharacterEditor';
 import { CardEditor } from '../Windows/CardEditor';
 import { WorldEditor } from '../Windows/WorldEditor';
 import { SettingsWindow } from '../Windows/SettingsWindow';
 import { DevConsole } from '../Windows/DevConsole';
-import { CharacterPoolWindow, CardPoolWindow, LocationPoolWindow, AiGenWindow } from '../Windows/PoolWindows';
+// import { CharacterPoolWindow } from '../Windows/Pools/CharacterPoolWindow'; // Deprecated
+import { CardPoolWindow } from '../Windows/Pools/CardPoolWindow';
+// import { LocationPoolWindow } from '../Windows/Pools/LocationPoolWindow'; // Deprecated
+import { WorldCompositionWindow } from '../Windows/WorldCompositionWindow'; // New Unified Window
+import { AiGenWindow } from '../Windows/Pools/AiGenWindow';
 import { PrizePoolWindow } from '../Windows/PrizePoolWindow'; 
-import { TriggerPoolWindow } from '../Windows/TriggerPoolWindow'; // New
+import { TriggerPoolWindow } from '../Windows/TriggerPoolWindow';
 import { ShopWindow } from '../Windows/ShopWindow';
+import { LetterWindow } from '../Windows/LetterWindow';
+import { ThemeEditorWindow } from '../Windows/ThemeEditorWindow';
+import { LocationEditor } from '../Windows/LocationEditor';
+import { StoryEditWindow } from '../Windows/StoryEditWindow';
+import { propagateCharacterNameChange } from '../../services/characterUtils';
 
 interface WindowManagerProps {
     windows: WindowState[];
@@ -18,7 +28,7 @@ interface WindowManagerProps {
     openWindow: (type: WindowState['type'], data?: any) => void;
     addLog: (text: string, overrides?: Partial<LogEntry>) => void;
     selectedCharId: string | null;
-    addDebugLog: (log: DebugLog) => void; // New Prop
+    addDebugLog: (log: DebugLog) => void; 
 }
 
 export const WindowManager: React.FC<WindowManagerProps> = ({ 
@@ -30,12 +40,17 @@ export const WindowManager: React.FC<WindowManagerProps> = ({
     const oldChar = state.characters[char.id];
     let changesLog = "";
     let locationChanged = false;
+    let nameChanged = false;
+    let finalChar = char;
     
     if (oldChar) {
         const changes: string[] = [];
         
         // Name/Desc
-        if (oldChar.name !== char.name) changes.push(`姓名 '${oldChar.name}'->'${char.name}'`);
+        if (oldChar.name !== char.name) {
+            changes.push(`姓名 '${oldChar.name}'->'${char.name}'`);
+            nameChanged = true;
+        }
         if (oldChar.description !== char.description) changes.push(`设定变更`);
 
         // Attributes
@@ -61,8 +76,12 @@ export const WindowManager: React.FC<WindowManagerProps> = ({
         }
     }
 
+    // Apply Name Propagation if name changed
+    if (nameChanged && oldChar) {
+        finalChar = propagateCharacterNameChange(finalChar, oldChar.name, finalChar.name);
+    }
+
     updateState(prev => {
-      let finalChar = char;
       
       if (locationChanged) {
           let maxId = 0;
@@ -125,9 +144,7 @@ export const WindowManager: React.FC<WindowManagerProps> = ({
     });
     
     if (changesLog) {
-        // Log "Mysterious Change" visible to ALL at the location (standard system behavior)
-        // We do NOT restrict visibility to [char.id] anymore.
-        addLog(`系统: ${char.name} ${changesLog}`, { 
+        addLog(`系统: ${finalChar.name} ${changesLog}`, { 
             locationId: locationId || state.map.activeLocationId, 
             type: 'system' 
         });
@@ -159,14 +176,17 @@ export const WindowManager: React.FC<WindowManagerProps> = ({
       windows.filter(w => w.type === 'world').forEach(w => closeWindow(w.id));
   };
 
-  const handleSaveSettings = (settings: AppSettings, judge: AIConfig, ctx: GlobalContextConfig, defaults: DefaultSettings, devMode: boolean) => {
+  const handleSaveSettings = (settings: AppSettings, judge: AIConfig, charGen: AIConfig, charBehavior: AIConfig, ctx: GlobalContextConfig, defaults: DefaultSettings, devMode: boolean) => {
       updateState(prev => ({
           ...prev,
           appSettings: settings,
           judgeConfig: judge,
+          charGenConfig: charGen, 
+          charBehaviorConfig: charBehavior, 
           globalContext: ctx,
           defaultSettings: defaults,
-          devMode: devMode
+          devMode: devMode,
+          debugLogs: devMode ? prev.debugLogs : []
       }));
       addLog("系统: 引擎全局设置已更新。");
       windows.filter(w => w.type === 'settings').forEach(w => closeWindow(w.id));
@@ -174,17 +194,15 @@ export const WindowManager: React.FC<WindowManagerProps> = ({
   
   const handleSyncAllChars = (config: AIConfig, settings?: AppSettings) => {
       updateState(prev => {
-          // 1. Override all characters
           const newChars = { ...prev.characters };
           Object.keys(newChars).forEach(key => {
               newChars[key] = { ...newChars[key], aiConfig: { ...config } };
           });
 
-          // 2. Update Global Judge & Settings (if provided)
           const newState = { 
               ...prev, 
-              characters: newChars,
-              judgeConfig: config 
+              characters: newChars, 
+              charBehaviorConfig: config 
           };
 
           if (settings) {
@@ -193,14 +211,65 @@ export const WindowManager: React.FC<WindowManagerProps> = ({
           return newState;
       });
       
-      let msg = "系统: 全局判定模型及所有角色的 AI 配置已强制覆盖。";
+      let msg = "系统: 全局角色行为模型及所有角色的 AI 配置已强制覆盖。";
       if (settings) msg += " (API Key 已同步)";
       addLog(msg);
   };
 
+  const handleSaveLocation = (loc: MapLocation) => {
+      // Check for name change to update Environment Character
+      const oldLoc = state.map.locations[loc.id];
+      const envCharId = `env_${loc.id}`;
+      const envChar = state.characters[envCharId];
+      
+      let updateEnvChar: Character | undefined = undefined;
+      let logSuffix = "";
+
+      if (oldLoc && oldLoc.name !== loc.name && envChar) {
+          // Rename Environment Character
+          const oldEnvName = envChar.name;
+          // Simple replacement: assume env name contains old location name, replace it.
+          // e.g. "OldLoc的环境" -> "NewLoc的环境"
+          const newEnvName = oldEnvName.split(oldLoc.name).join(loc.name);
+          
+          if (newEnvName !== oldEnvName) {
+              // Apply Propagation
+              updateEnvChar = propagateCharacterNameChange({ ...envChar, name: newEnvName }, oldEnvName, newEnvName);
+              logSuffix = ` (关联环境角色已重命名为: ${newEnvName})`;
+          }
+      }
+
+      updateState(prev => {
+          const newChars = { ...prev.characters };
+          if (updateEnvChar) {
+              newChars[updateEnvChar.id] = updateEnvChar;
+          }
+          
+          return {
+              ...prev,
+              map: {
+                  ...prev.map,
+                  locations: {
+                      ...prev.map.locations,
+                      [loc.id]: loc
+                  }
+              },
+              characters: newChars
+          };
+      });
+      
+      addLog(`系统: 地点 [${loc.name}] 信息已更新。${logSuffix}`);
+      windows.filter(w => w.type === 'location_edit').forEach(w => closeWindow(w.id));
+  };
+
   return (
       <>
-        {windows.map(win => (
+        {windows.map((win, index) => {
+          // Dynamic Z-Index Calculation: 
+          // Base 100 + index * 10 ensures later windows are always on top.
+          const zIndex = 100 + index * 10;
+          
+          return (
           <div key={win.id}>
               {win.type === 'char' && (
                   <CharacterEditor 
@@ -209,6 +278,7 @@ export const WindowManager: React.FC<WindowManagerProps> = ({
                     onClose={() => closeWindow(win.id)} 
                     onSave={handleSaveCharacter} 
                     onUpdatePoolCard={handleSaveCard}
+                    // Window component handles zIndex via prop internally if needed, but CharacterEditor sets it on Window
                   />
               )}
               {win.type === 'card' && (
@@ -229,12 +299,16 @@ export const WindowManager: React.FC<WindowManagerProps> = ({
                   <SettingsWindow
                     settings={state.appSettings}
                     judgeConfig={state.judgeConfig!}
+                    charGenConfig={state.charGenConfig} 
+                    charBehaviorConfig={state.charBehaviorConfig} 
                     globalContext={state.globalContext}
                     defaultSettings={state.defaultSettings}
                     devMode={state.devMode}
                     onClose={() => closeWindow(win.id)}
                     onSave={handleSaveSettings}
                     onSyncAllChars={handleSyncAllChars}
+                    addDebugLog={addDebugLog} 
+                    openWindow={openWindow} 
                   />
               )}
               {win.type === 'pool' && (
@@ -249,16 +323,17 @@ export const WindowManager: React.FC<WindowManagerProps> = ({
                     onSaveCard={handleSaveCard}
                   />
               )}
-              {win.type === 'char_pool' && (
-                  <CharacterPoolWindow 
+              {/* Redirect old types to new WorldCompositionWindow */}
+              {(win.type === 'char_pool' || win.type === 'location_pool' || win.type === 'world_composition' as any) && (
+                  <WorldCompositionWindow 
                     winId={win.id} 
                     state={state}
                     updateState={updateState}
                     closeWindow={closeWindow}
                     openWindow={openWindow}
                     addLog={addLog}
-                    selectedCharId={selectedCharId}
-                    addDebugLog={addDebugLog} // Passed
+                    addDebugLog={addDebugLog} 
+                    data={win.data} // Correctly pass data (e.g. targetCardId)
                   />
               )}
               {win.type === 'char_gen' && (
@@ -267,19 +342,15 @@ export const WindowManager: React.FC<WindowManagerProps> = ({
                     updateState={updateState}
                     addLog={addLog}
                     onClose={() => closeWindow(win.id)}
-                    isPlayerMode={true} // Dedicated Player Generation Mode
-                    addDebugLog={addDebugLog} // Passed
+                    isPlayerMode={true} 
+                    addDebugLog={addDebugLog} 
                   />
               )}
-              {win.type === 'location_pool' && (
-                  <LocationPoolWindow
-                    winId={win.id}
-                    state={state}
-                    updateState={updateState}
-                    closeWindow={closeWindow}
-                    openWindow={openWindow}
-                    addLog={addLog}
-                    selectedCharId={selectedCharId}
+              {win.type === 'location_edit' && (
+                  <LocationEditor 
+                    location={win.data}
+                    onSave={handleSaveLocation}
+                    onClose={() => closeWindow(win.id)}
                   />
               )}
               {win.type === 'prize_pool' && (
@@ -310,11 +381,39 @@ export const WindowManager: React.FC<WindowManagerProps> = ({
                     activeCharId={selectedCharId || undefined}
                   />
               )}
+              {win.type === 'letter' && (
+                  <LetterWindow 
+                    winId={win.id}
+                    charId={win.data}
+                    state={state}
+                    updateState={updateState}
+                    closeWindow={closeWindow}
+                    addDebugLog={addDebugLog}
+                    addLog={addLog}
+                  />
+              )}
               {win.type === 'dev' && (
                   <DevConsole logs={state.debugLogs} onClose={() => closeWindow(win.id)} />
               )}
+              {win.type === 'theme' && (
+                  <ThemeEditorWindow 
+                    winId={win.id} 
+                    state={state} 
+                    updateState={updateState} 
+                    closeWindow={closeWindow} 
+                  />
+              )}
+              {win.type === 'story_edit' && (
+                  <StoryEditWindow 
+                    winId={win.id}
+                    state={state}
+                    updateState={updateState}
+                    closeWindow={closeWindow}
+                  />
+              )}
           </div>
-      ))}
+          );
+        })}
       </>
   );
 };

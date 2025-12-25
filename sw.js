@@ -1,9 +1,9 @@
 
 const CACHE_NAME = 'aetheria-v1';
 const ASSETS_TO_CACHE = [
-  '/',
-  '/index.html',
-  '/manifest.json'
+  './',
+  './index.html',
+  './manifest.json'
 ];
 
 // Install event: Cache core assets

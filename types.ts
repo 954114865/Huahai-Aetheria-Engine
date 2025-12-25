@@ -26,6 +26,17 @@ export enum TerrainType {
     TOWN = 'Town',   // 村镇
 }
 
+export interface GlobalContextMessage {
+    role: 'user' | 'model' | 'system'; 
+    content: string;
+}
+
+export interface GlobalContextConfig {
+    messages: GlobalContextMessage[];
+}
+
+export type ReasoningEffort = 'minimal' | 'low' | 'medium' | 'high';
+
 export interface AIConfig {
   provider: Provider;
   model?: string;
@@ -34,19 +45,12 @@ export interface AIConfig {
   topP?: number;
   topK?: number;
   maxOutputTokens?: number;
-}
-
-export interface GlobalContextMessage {
-    role: 'user' | 'model' | 'system'; 
-    content: string;
+  reasoningEffort?: ReasoningEffort; // New: Thinking Level
+  contextConfig?: GlobalContextConfig; // New: Model specific context
 }
 
 export interface ContextConfig {
   messages: GlobalContextMessage[]; 
-}
-
-export interface GlobalContextConfig {
-    messages: GlobalContextMessage[];
 }
 
 export interface ContextSegment {
@@ -107,19 +111,76 @@ export interface Conflict {
     solvedTimestamp?: number; // When it was solved
 }
 
+// --- IMAGE SYSTEM TYPES ---
+export interface GameImage {
+    id: string;
+    base64: string; // Raw base64 string without data:image/jpeg;base64, prefix
+    mimeType: string; // e.g. 'image/jpeg'
+    description: string; // Text description sent to AI before the image
+}
+// --------------------------
+
+// --- LETTER SYSTEM TYPES ---
+export interface LetterFragment {
+    id: string;
+    key: string; // JSON key
+    label: string; // Display name / Instruction
+}
+
+export interface LetterParagraph {
+    id: string;
+    key: string; // JSON key
+    label: string; // Section header
+    fragments: LetterFragment[];
+    separator: string; // default '\t'
+}
+
+export interface LetterTemplate {
+    id: string;
+    name: string;
+    prompt: string; // User's custom instruction
+    paragraphs: LetterParagraph[];
+}
+
+export interface MailItem {
+    id: string;
+    timestamp: number;
+    charId: string; // Who sent it (NPC)
+    templateSnapshot: LetterTemplate; // Snapshot of the template used
+    userRequest: string; // What the user asked
+    responseRaw: string; // The raw JSON string from AI
+    responseParsed: Record<string, any>; // The structured data
+    intro?: string; // New: Conversational opening/reply
+    attachedImages?: GameImage[]; // Images sent with the mail
+}
+// ---------------------------
+
+export interface CharacterMemoryConfig {
+    useOverride: boolean;
+    maxMemoryRounds: number;
+    actionDropoutProbability: number;
+    reactionDropoutProbability: number;
+}
+
 export interface Character {
   id: string;
   isPlayer: boolean;
   name: string;
   appearance: string; // New: Publicly visible appearance
   description: string; // Private biography/personality
+  style?: string; // New: Speech style / sample text
   avatarUrl?: string;
   attributes: Record<string, GameAttribute>;
   skills: Card[]; // Fixed Skills (Deck)
   inventory: string[]; // IDs of cards in the Inventory (Hand)
   drives: Drive[]; // Conditions to gain Pleasure
   conflicts: Conflict[]; // Conflicts specific to this character
+  
+  useAiOverride?: boolean; // New: If true, use aiConfig. If false, use global.
   aiConfig?: AIConfig; // Only for NPCs
+  
+  memoryConfig?: CharacterMemoryConfig; // New: Character specific memory settings
+  
   contextConfig: ContextConfig; // What does the AI know?
   
   // New fields for update
@@ -129,6 +190,13 @@ export interface Character {
   
   // Follower Logic
   isFollowing?: boolean; // If true, follows player to new locations
+
+  // Mail System
+  mailHistory?: MailItem[]; // New: History of letters
+
+  // Multi-modal Support
+  appearanceImages?: GameImage[]; // Max 1
+  descriptionImages?: GameImage[]; // Max 3
 }
 
 // --- PRIZE POOL TYPES ---
@@ -224,6 +292,7 @@ export interface MapLocation {
     regionId?: string; // Link to a parent region
     terrainType?: TerrainType; // Saved specific terrain type
     avatarUrl?: string; // New: Location Avatar (Blurred abstract image)
+    images?: GameImage[]; // Max 4 location images
 }
 
 export interface MapChunk {
@@ -255,32 +324,12 @@ export interface MapState {
 
 // ------------------------
 
-export interface LogEntry {
-    id: string;
-    round: number;
-    turnIndex: number;
-    locationId?: string; // If undefined, considered a "Global" event (e.g. Round Start)
-    presentCharIds?: string[]; // IDs of characters present when this happened. Used for memory filtering.
-    content: string; // The text content
-    timestamp: number;
-    type?: 'narrative' | 'system' | 'action';
-    isReaction?: boolean; // New: Marks if this log is a passive reaction to another event, not a main turn action
-}
-
-export interface WorldState {
-  attributes: Record<string, GameAttribute>; // Weather, Mana, etc. (Location removed)
-  history: LogEntry[]; // Structured Story Log
-  worldGuidance: string; // User-defined direction for AI generation
-}
-
-export type GamePhase = 'init' | 'order' | 'turn_start' | 'char_acting' | 'executing' | 'settlement' | 'round_end';
-
 export interface RoundState {
   roundNumber: number;
   turnIndex: number;
   phase: GamePhase; // Current execution phase
   activeCharId?: string; // Currently acting character
-  defaultOrder: string[]; // The user-defined standard order (e.g., [1, 2, 3])
+  defaultOrder: string[]; // The user-defined standard order (e.g., [1, 3, 2])
   currentOrder: string[]; // The actual order for this specific round (might be modified by effects)
   isReverse: boolean;
   isPaused: boolean;
@@ -301,18 +350,55 @@ export interface RoundState {
 
   // Time Flow Control
   isWorldTimeFlowPaused?: boolean; // If true, automatic world time progression is paused
+
+  // Hidden Round Feature
+  isHiddenRound?: boolean; // If true, this round is a special hidden round
 }
+
+// NEW: Snapshot of Round State for Restoration
+export type RoundSnapshot = RoundState;
+
+export interface LogEntry {
+    id: string;
+    round: number;
+    turnIndex: number;
+    locationId?: string; // If undefined, considered a "Global" event (e.g. Round Start)
+    presentCharIds?: string[]; // IDs of characters present when this happened. Used for memory filtering.
+    content: string; // The text content
+    timestamp: number;
+    type?: 'narrative' | 'system' | 'action';
+    isReaction?: boolean; // New: Marks if this log is a passive reaction to another event, not a main turn action
+    
+    // KEY UPDATE: Stores the round state at the moment this log was created
+    snapshot?: RoundSnapshot;
+    
+    // NEW: Explicitly track who performed the action/reaction in this log
+    actingCharId?: string;
+
+    // Multi-modal support
+    images?: GameImage[]; // Images attached to this log entry
+}
+
+export interface WorldState {
+  attributes: Record<string, GameAttribute>; // Weather, Mana, etc. (Location removed)
+  history: LogEntry[]; // Structured Story Log
+  worldGuidance: string; // User-defined direction for AI generation
+}
+
+export type GamePhase = 'init' | 'order' | 'turn_start' | 'char_acting' | 'executing' | 'settlement' | 'round_end';
 
 export interface LockedFeatures {
     cardPoolEditor: boolean;
     characterEditor: boolean;
     locationEditor: boolean;
     actionPoints: boolean;
-    locationReset: boolean;
+    // locationReset merged into locationEditor
     worldState: boolean;
     directorInstructions: boolean;
     prizePoolEditor: boolean;
     triggerEditor: boolean; // New
+    mapView: boolean; // New: Locks map pan/zoom/view reset
+    modelInterface: boolean; // New: Locks model configuration
 }
 
 export interface GlobalVariable {
@@ -321,9 +407,52 @@ export interface GlobalVariable {
     value: string;
 }
 
+// --- THEME SYSTEM ---
+export interface ThemePalette {
+    baseHue: string; // e.g. "slate", "gray", "zinc" - For Backgrounds/Borders
+    baseSat?: number; // 0..2 Saturation Multiplier (Default 1)
+    
+    primaryHue: string; // e.g. "indigo", "violet" - For Primary Actions
+    primarySat?: number; // 0..2 Saturation Multiplier (Default 1)
+    
+    secondaryHue: string; // e.g. "teal", "cyan" - For Secondary Actions/Highlights
+    secondarySat?: number; // 0..2 Saturation Multiplier (Default 1)
+
+    // New Semantic Colors
+    libidoHue?: string; // Pleasure related (Default Pink)
+    libidoSat?: number; // Independent Saturation
+
+    dopamineHue?: string; // Happiness/Reward related (Default Yellow)
+    dopamineSat?: number; // Independent Saturation
+
+    endorphinHue?: string; // Tension/Relief related (Default Orange)
+    endorphinSat?: number; // Independent Saturation
+
+    oxytocinHue?: string; // Calm/Trust related (Default Teal)
+    oxytocinSat?: number; // Independent Saturation
+
+    // --- Story Log Specific ---
+    storyLogBgHue?: string; // Background color for the story log
+    storyLogBgSat?: number; 
+    storyLogTextHue?: string; // Main text color for the story log
+    storyLogTextSat?: number;
+}
+
+export interface ThemeConfig {
+    light: ThemePalette;
+    dark: ThemePalette;
+}
+
+export interface ImageSettings {
+    maxShortEdge: number;
+    maxLongEdge: number;
+    compressionQuality: number;
+}
+
 export interface AppSettings {
     apiKeys: Record<Provider, string>;
-    maxContextSize: number; // Max tokens for context window
+    maxOutputTokens: number; // Max output tokens for generation (Renamed from maxContextSize)
+    maxInputTokens: number; // New: Estimated max input tokens for context window
     reactionContextTurns: number; // How many history lines to include for reactions
     devOptionsUnlocked: boolean; // Track if dev options are unlocked in this session
     devPassword?: string; // Password for developer options
@@ -331,12 +460,32 @@ export interface AppSettings {
     saveExpirationDate?: string; // New: ISO String for Save Expiration
     lockedFeatures: LockedFeatures; // New: Feature locking for end-user distribution
     globalVariables: GlobalVariable[]; // New: Global Text Macros
-    storyLogLightMode: boolean; // New: Light Mode Toggle for Story Log
+    storyLogLightMode: boolean; // New: Global Light Mode Toggle
     
     // History Limit Settings
     maxHistoryRounds: number; // Rounds of global history to send to AI
     maxShortHistoryRounds: number; // Rounds of short global history for logic checks
     maxCharacterMemoryRounds: number; // Rounds of character-specific memory
+    maxEnvMemoryRounds: number; // New: Memory rounds for environment characters
+    
+    // SPLIT MEMORY DROPOUT SETTINGS
+    actionMemoryDropoutProbability?: number; // New: Probability to reduce memory during Action phase (4 rounds)
+    reactionMemoryDropoutProbability?: number; // New: Probability to reduce memory during Reaction phase (2 rounds)
+
+    savedLetterTemplates?: LetterTemplate[]; // Saved Letter Templates
+    themeConfig: ThemeConfig; // NEW: Theming with Dual Modes
+    
+    // New: Image Configuration
+    imageSettings: ImageSettings;
+
+    // New: Native Chooser Override (for Android)
+    useNativeChooser?: boolean;
+    
+    // Streaming Toggle
+    enableStreaming?: boolean;
+    
+    // Auto Scroll Behavior
+    autoScrollOnNewLog?: boolean; // Default false. If true, auto-scroll to bottom on new message.
 }
 
 export interface GameplaySettings {
@@ -344,6 +493,7 @@ export interface GameplaySettings {
     defaultCreationCost: number;
     defaultInitialAP: number;
     worldTimeScale?: number; // New: Control simulation speed (1 = 1sec/sec)
+    maxNPCsPerRound?: number; // New: Max NPCs to activate per round (Default 4)
 }
 
 // New Templates and Prompts structure
@@ -368,11 +518,14 @@ export interface PromptsConfig {
     analyzeNewConflicts: string;
     analyzeSettlement: string;
     generateCharacter: string;
+    generateUnveil: string; // New: Unveil character backstory
     analyzeTimePassage: string; // Deprecated logic, but kept in config structure for safety
     // New instruction snippets
     instruction_generateNewRegion: string;
     instruction_existingRegionContext: string;
     context_nearbyCharacters: string;
+    observation: string; // New: Observation prompt
+    generateLetter: string; // New: Letter generation prompt
 }
 
 export interface WeatherType {
@@ -408,7 +561,7 @@ export interface DebugLog {
 }
 
 export interface WindowState {
-    type: 'char' | 'card' | 'settings' | 'world' | 'pool' | 'char_pool' | 'location_pool' | 'dev' | 'char_gen' | 'prize_pool' | 'shop' | 'trigger_pool';
+    type: 'char' | 'card' | 'settings' | 'world' | 'pool' | 'char_pool' | 'location_pool' | 'dev' | 'char_gen' | 'prize_pool' | 'shop' | 'trigger_pool' | 'letter' | 'theme' | 'location_edit' | 'story_edit' | 'world_composition';
     data?: any;
     id: number;
 }
@@ -422,6 +575,8 @@ export interface GameState {
   prizePools: Record<string, PrizePool>; // New: Lottery System
   triggers: Record<string, Trigger>; // New: Trigger System
   judgeConfig?: AIConfig; // Global AI for judging world effects
+  charGenConfig?: AIConfig; // NEW: Dedicated AI for Character Generation
+  charBehaviorConfig?: AIConfig; // NEW: Dedicated AI for Character Action/Reaction
   globalContext: GlobalContextConfig; // Global prepended context
   appSettings: AppSettings;
   
